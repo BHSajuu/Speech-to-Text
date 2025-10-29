@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-m">
+    <!-- Viewport meta tag ensures proper scaling on mobile devices -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Speech-to-Text</title>
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide icons -->
+    <script src="https://unpkg.com/lucide-react@latest/dist/lucide-react.js"></script>
+    <style>
+        /* Custom styles */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Style for the pulsing recording indicator */
+        .pulse-ring {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 1);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 20px rgba(239, 68, 68, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 h-full flex items-center justify-center p-4">
+
+    <div class="w-full max-w-2xl mx-auto bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-indigo-600 dark:text-indigo-400">Live Transcribe</h1>
+            <p class="text-lg text-gray-600 dark:text-gray-300 mt-2">Press the button and start speaking.</p>
+        </header>
+
+        <!-- Main Button -->
+        <div class="flex flex-col items-center justify-center mb-6">
+            <button id="toggleBtn" class="relative flex items-center justify-center w-24 h-24 bg-indigo-600 text-white rounded-full shadow-lg transition-all duration-300 ease-in-out hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:focus:ring-indigo-800">
+                <!-- Microphone Icon -->
+                <svg id="micIcon" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                <!-- Stop Icon (hidden by default) -->
+                <svg id="stopIcon" class="w-10 h-10 hidden" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd"></path></svg>
+                <!-- Pulsing ring (hidden by default) -->
+                <div id="pulseRing" class="absolute w-24 h-24 rounded-full bg-red-500 opacity-75 -z-10 hidden"></div>
+            </button>
+            <p id="status" class="text-sm text-gray-500 dark:text-gray-400 mt-4 h-5 text-center"></p>
+        </div>
+
+        <!-- Transcription Display -->
+        <div class="w-full bg-gray-50 dark:bg-gray-700 rounded-lg p-4 min-h-[300px] shadow-inner overflow-y-auto">
+            <!-- Final Transcript Area -->
+            <div id="finalTranscript" class="text-lg md:text-xl leading-relaxed"></div>
+            <!-- Interim Transcript Area (real-time, changing text) -->
+            <div id="interimTranscript" class="text-lg md:text-xl text-gray-500 dark:text-gray-400 italic"></div>
+        </div>
+
+        <!-- Error/Info Message Box -->
+        <div id="messageBox" class="hidden mt-4 p-4 rounded-lg bg-yellow-100 dark:bg-yellow-900 border border-yellow-300 dark:border-yellow-700 text-yellow-800 dark:text-yellow-200">
+            <p id="messageText"></p>
+        </div>
+    </div>
+
+    <script>
+        // Check for browser support for the Web Speech API
+        window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (!window.SpeechRecognition) {
+            showMessage("Your browser doesn't support the Web Speech API. Please try Chrome, Firefox, or Edge.");
+        } else {
+            // Initialize speech recognition
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;  // Keep listening even after a pause
+            recognition.interimResults = true; // Show results as they are being recognized
+            recognition.lang = 'en-US'; // You can change this to other languages
+
+            let isListening = false;
+            let finalTranscript = '';
+
+            // Get DOM elements
+            const toggleBtn = document.getElementById('toggleBtn');
+            const micIcon = document.getElementById('micIcon');
+            const stopIcon = document.getElementById('stopIcon');
+            const pulseRing = document.getElementById('pulseRing');
+            const statusEl = document.getElementById('status');
+            const finalTranscriptEl = document.getElementById('finalTranscript');
+            const interimTranscriptEl = document.getElementById('interimTranscript');
+
+            // --- Event Handlers ---
+
+            // Fired when speech is recognized
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                finalTranscript = ''; // Reset final transcript to rebuild from all results
+
+                for (let i = 0; i < event.results.length; ++i) {
+                    const transcriptPart = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        // Append final results, capitalizing the first letter of the new part
+                        finalTranscript += capitalize(transcriptPart.trim()) + '. ';
+                    } else {
+                        // Build interim results
+                        interimTranscript += transcriptPart;
+                    }
+                }
+
+                // Update the DOM
+                finalTranscriptEl.innerHTML = finalTranscript;
+                interimTranscriptEl.textContent = interimTranscript;
+            };
+
+            // Fired when recognition starts
+            recognition.onstart = () => {
+                isListening = true;
+                updateUIMode('listening');
+            };
+
+            // Fired when recognition ends
+            recognition.onend = () => {
+                isListening = false;
+                updateUIMode('idle');
+                // If it stopped unexpectedly, you could optionally restart it
+                // if (isListening) { recognition.start(); }
+            };
+
+            // Fired on error
+            recognition.onerror = (event) => {
+                let errorMsg = 'An error occurred: ' + event.error;
+                if (event.error === 'no-speech') {
+                    errorMsg = "I didn't hear anything. Please try again.";
+                } else if (event.error === 'audio-capture') {
+                    errorMsg = "Couldn't access the microphone. Please check permissions.";
+                } else if (event.error === 'not-allowed') {
+                    errorMsg = "Microphone access was denied. Please allow it in your browser settings.";
+                }
+                showMessage(errorMsg);
+                console.error('Speech recognition error:', event.error);
+                updateUIMode('idle');
+            };
+
+            // --- Control Functions ---
+
+            // Toggle button click handler
+            toggleBtn.addEventListener('click', () => {
+                if (isListening) {
+                    recognition.stop();
+                } else {
+                    // Request microphone permission and start
+                    navigator.mediaDevices.getUserMedia({ audio: true })
+                        .then(() => {
+                            finalTranscript = finalTranscriptEl.innerHTML; // Preserve existing text
+                            recognition.start();
+                        })
+                        .catch((err) => {
+                            console.error('Microphone access error:', err);
+                            showMessage("Microphone access was denied. Please allow it in your browser settings.");
+                        });
+                }
+            });
+
+            // --- UI Helper Functions ---
+
+            function updateUIMode(mode) {
+                if (mode === 'listening') {
+                    micIcon.classList.add('hidden');
+                    stopIcon.classList.remove('hidden');
+                    toggleBtn.classList.add('bg-red-500', 'hover:bg-red-600');
+                    toggleBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+                    pulseRing.classList.remove('hidden');
+                    pulseRing.classList.add('pulse-ring');
+                    statusEl.textContent = 'Listening...';
+                } else { // 'idle'
+                    micIcon.classList.remove('hidden');
+                    stopIcon.classList.add('hidden');
+                    toggleBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+                    toggleBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+                    pulseRing.classList.add('hidden');
+Remove('pulse-ring');
+                    statusEl.textContent = 'Click to start';
+                }
+            }
+
+            function showMessage(message) {
+                const messageBox = document.getElementById('messageBox');
+                document.getElementById('messageText').textContent = message;
+                messageBox.classList.remove('hidden');
+                // Hide the message after 5 seconds
+                setTimeout(() => {
+                    messageBox.classList.add('hidden');
+                }, 5000);
+            }
+
+            // Utility to capitalize the first letter
+            function capitalize(s) {
+                if (typeof s !== 'string' || s.length === 0) return '';
+                return s.charAt(0).toUpperCase() + s.slice(1);
+            }
+
+            // Set initial state
+            updateUIMode('idle');
+        }
+
+    </script>
+</body>
+</html>

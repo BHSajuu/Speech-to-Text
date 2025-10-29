@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full">
 <head>
-    <meta charset="UTF-m">
+    <meta charset="UTF-8"> <!-- Corrected charset -->
     <!-- Viewport meta tag ensures proper scaling on mobile devices -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Real-Time Speech-to-Text</title>
@@ -81,7 +81,7 @@
             recognition.lang = 'en-US'; // You can change this to other languages
 
             let isListening = false;
-            let finalTranscript = '';
+            let globalFinalTranscript = ''; // Stores the complete final transcript across sessions
 
             // Get DOM elements
             const toggleBtn = document.getElementById('toggleBtn');
@@ -97,21 +97,27 @@
             // Fired when speech is recognized
             recognition.onresult = (event) => {
                 let interimTranscript = '';
-                finalTranscript = ''; // Reset final transcript to rebuild from all results
+                let newFinalTranscript = ''; // For this event's results only
 
-                for (let i = 0; i < event.results.length; ++i) {
+                // Iterate from the last processed result index
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
                     const transcriptPart = event.results[i][0].transcript;
                     if (event.results[i].isFinal) {
-                        // Append final results, capitalizing the first letter of the new part
-                        finalTranscript += capitalize(transcriptPart.trim()) + '. ';
+                        // Append *only* new final results
+                        newFinalTranscript += capitalize(transcriptPart.trim()) + '. ';
                     } else {
-                        // Build interim results
+                        // Build the *current* interim results
                         interimTranscript += transcriptPart;
                     }
                 }
 
                 // Update the DOM
-                finalTranscriptEl.innerHTML = finalTranscript;
+                // Append new final text to the preserved global text
+                if (newFinalTranscript) {
+                    globalFinalTranscript += newFinalTranscript;
+                    finalTranscriptEl.innerHTML = globalFinalTranscript;
+                }
+                // Always update the interim text
                 interimTranscriptEl.textContent = interimTranscript;
             };
 
@@ -124,6 +130,15 @@
             // Fired when recognition ends
             recognition.onend = () => {
                 isListening = false;
+                
+                // Check if there was any interim text left that wasn't finalized
+                const lastInterim = interimTranscriptEl.textContent;
+                if (lastInterim) {
+                    globalFinalTranscript += capitalize(lastInterim.trim()) + '. ';
+                    finalTranscriptEl.innerHTML = globalFinalTranscript;
+                    interimTranscriptEl.textContent = '';
+                }
+
                 updateUIMode('idle');
                 // If it stopped unexpectedly, you could optionally restart it
                 // if (isListening) { recognition.start(); }
@@ -154,7 +169,7 @@
                     // Request microphone permission and start
                     navigator.mediaDevices.getUserMedia({ audio: true })
                         .then(() => {
-                            finalTranscript = finalTranscriptEl.innerHTML; // Preserve existing text
+                            globalFinalTranscript = finalTranscriptEl.innerHTML; // Preserve existing text
                             recognition.start();
                         })
                         .catch((err) => {
@@ -181,7 +196,7 @@
                     toggleBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
                     toggleBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
                     pulseRing.classList.add('hidden');
-Remove('pulse-ring');
+                    pulseRing.classList.remove('pulse-ring'); // Corrected typo here
                     statusEl.textContent = 'Click to start';
                 }
             }
@@ -209,3 +224,4 @@ Remove('pulse-ring');
     </script>
 </body>
 </html>
+
